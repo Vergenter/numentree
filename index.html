@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tiered Binary Forest Builder — sparse grid + natural extend</title>
+<title>Tiered Binary Forest Builder</title>
 <style>
-  :root{--bg:#0f1221;--panel:#161a2e;--muted:#8088a0;--text:#e9ecf1;--accent:#61dafb;--ok:#32d296;--err:#ff6b6b;--warn:#fbbf24;--slot:#202640;--chip:#0b0e1a;--border:#2a3154}
+  :root{--bg:#0f1221;--panel:#161a2e;--muted:#8088a0;--text:#e9ecf1;--accent:#61dafb;--ok:#32d296;--err:#ff6b6b;--slot:#202640;--chip:#0b0e1a;--border:#2a3154}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial}
   *{box-sizing:border-box}
   header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#10142a,#0f1221)}
-  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px;display:flex;gap:10px;align-items:center}
+  .ver{font-size:12px;color:var(--muted);padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#0f1530}
   header .btnrow{display:flex;gap:8px;flex-wrap:wrap}
   button,select{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-weight:600}
   button:hover{filter:brightness(1.1);cursor:pointer}
@@ -17,9 +18,10 @@
   .pill{border-radius:999px;padding:6px 10px}
   .ok{border-color:#2a5f4b;background:#123427;color:#bff4df}
   .err{border-color:#6b2a2a;background:#2a1212;color:#ffd1d1}
-  .chip-btn{border:1px solid var(--border);background:var(--chip);border-radius:999px;font-size:12px;padding:4px 8px;margin:2px}
+  .chip-btn{border:1px solid var(--border);background:#0b0e1a;border-radius:999px;font-size:12px;padding:4px 8px;margin:2px;display:inline-flex;gap:6px;align-items:center}
   .chip-btn.ok{background:#123427;border-color:#2a5f4b}
   .chip-btn.locked{opacity:.6;cursor:not-allowed}
+  .child-label{font-weight:700}
   main{display:grid;grid-template-columns:440px 1fr;height:calc(100% - 56px)}
   aside{border-right:1px solid var(--border);background:var(--panel);overflow:auto}
   .panel{padding:12px}
@@ -41,7 +43,7 @@
   .tier-row{position:relative;min-height:80px;background:linear-gradient(0deg,transparent 0,transparent 59px,rgba(255,255,255,.05) 60px,transparent 61px);border:1px dashed rgba(255,255,255,.06);border-radius:12px;padding:12px 12px 24px}
   .tier-label{position:absolute;right:12px;top:8px;font-size:12px;color:var(--muted)}
   .lane{display:flex;gap:16px;align-items:flex-start;min-height:58px;flex-wrap:nowrap}
-  .node{width:170px;min-height:48px;padding:8px;border-radius:14px;border:2px solid rgba(255,255,255,.15);background:var(--slot);box-shadow:0 4px 16px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:6px;position:relative}
+  .node{width:170px;min-height:48px;padding:8px;border-radius:14px;border:2px solid rgba(255,255,255,.15);background:var(--slot);box-shadow:0 4px 16px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:6px;position:relative;transform:translateX(0)} /* transform reset every layout */
   .node .hdr{display:flex;align-items:center;gap:8px;cursor:pointer}
   .node .title{font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .node .meta{font-size:11px;color:var(--muted)}
@@ -49,19 +51,21 @@
   .swap-handle{position:absolute;right:-10px;top:12px;width:12px;height:24px;border-radius:4px;background:#243056;border:1px solid #3a4570;cursor:pointer}
   .swap-handle:hover{background:#2e3b6d}
   .stack{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
-  .stack .chip{display:inline-flex;gap:6px;align-items:center;padding:2px 6px;border:1px solid var(--border);background:var(--chip);border-radius:999px;font-size:11px}
+  .stack .chip{display:inline-flex;gap:6px;align-items:center;padding:2px 6px;border:1px solid var(--border);background:#0b0e1a;border-radius:999px;font-size:11px}
   .stack .chip .rm{margin-left:6px;border:none;background:transparent;color:#ffd1d1;cursor:pointer}
   .node .actions{display:flex;gap:6px;margin-top:4px}
   .footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(19,22,41,.8),rgba(19,22,41,1));backdrop-filter:blur(6px);border-top:1px solid var(--border);padding:10px 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .grow{flex:1}
   .small{font-size:12px;color:var(--muted)}
   .counter{font-size:12px;background:#0f1530;border:1px solid var(--border);padding:6px 8px;border-radius:10px}
-  .sugg-chip{font-size:12px;border:1px solid var(--border);background:#0b0e1a;border-radius:999px;padding:4px 8px;margin:2px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Tiered Binary Forest Builder — sparse grid + natural extend</h1>
+  <h1>
+    Tiered Binary Forest Builder
+    <span id="version" class="ver"></span>
+  </h1>
   <div class="btnrow">
     <span id="points" class="counter">Points: 0</span>
     <button id="undoBtn" title="Ctrl+Z">Undo</button>
@@ -76,11 +80,9 @@
     <div class="panel">
       <div class="section-title">How to use</div>
       <div class="hint">
-        • Add <b>Tier&nbsp;1</b> leaves from “Addable now” (inserts after selected T1 if any).<br>
-        • Tier&gt;1: click a parent item, then a <b>green pair</b>. Grey = reason blocked.<br>
-        • If this tier already has that <b>color</b>, clicking its item will <b>auto-extend</b> the existing node (no selection).<br>
-        • Select one node to swap (hover handle = preview). Delete only if no parents above.<br>
-        • Click an extension chip’s ✕ to remove that specific extension (refund point).
+        • Add <b>Tier&nbsp;1</b> leaves (inserts after selected T1).<br>
+        • Tier&gt;1: click a parent item, then a <b>green pair</b> (only color-matching pairs are shown).<br>
+        • If a (tier,color) already exists, clicking an item of that (tier,color) will <b>auto-extend</b> that node. All chips are equal; remove any chip via ✕.
       </div>
 
       <div class="section-title">Filters</div>
@@ -91,7 +93,7 @@
         <select id="colorFilter"><option value="">Any</option></select>
       </div>
 
-      <div class="section-title">Addable now</div>
+      <div class="section-title">Addable now (T5 → T1; Extensions last)</div>
       <div id="tableListAddable" class="table-list"></div>
 
       <div class="section-title">Locked / not yet achievable</div>
@@ -114,6 +116,9 @@
 </main>
 
 <script>
+/** BUMP THIS ON EVERY COMMIT **/
+const APP_VERSION = "0.9.1"; // ← increment this string each commit
+
 /* ---------- DOM helpers ---------- */
 const $ = s => document.querySelector(s);
 const el = (t,a={},...k)=>{const n=document.createElement(t),B=new Set(["disabled","checked","selected","hidden","readonly","multiple","required","autofocus","open","controls","loop","muted","playsinline"]);for(const[p,v]of Object.entries(a)){if(p==="class"){n.className=v;continue}if(p==="style"){n.style.cssText=v;continue}if(p.startsWith("on")&&typeof v==="function"){n.addEventListener(p.slice(2),v);continue}if(B.has(p)){if(v)n.setAttribute(p,"");else n.removeAttribute(p);continue}if(v!==null&&v!==undefined)n.setAttribute(p,v)}for(const c of k)n.append(c);return n};
@@ -121,6 +126,7 @@ const copy=x=>JSON.parse(JSON.stringify(x));
 const b64u=s=>btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const ub64=s=>decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/') + (s.length%4?'='.repeat(4-(s.length%4)):''))));
 const setStatus=(m,e=false)=>{$('#status').textContent=m;$('#status').className='small '+(e?'err':'')};
+const nextFrame = fn => requestAnimationFrame(()=>requestAnimationFrame(fn)); // 2 rafs to ensure DOM settled
 
 /* ---------- Data seed ---------- */
 const TIER_MAX=5, MAX_PARENTS_PER_CHILD=2;
@@ -129,9 +135,7 @@ const colorNames=new Map(BASE_COLORS.map((c,i)=>[c,`C${String(i+1).padStart(2,'0
 
 function seedTable(){
   const table=[];
-  // Tier 1: exactly one per color
   BASE_COLORS.forEach((col,i)=>table.push({id:`T1-${i+1}`,tier:1,color:col,name:`Leaf ${i+1}`,desc:`Tier 1 / ${colorNames.get(col)}`,used:false}));
-  // Tiers 2..5: 5 per color
   for(let t=2;t<=TIER_MAX;t++){
     BASE_COLORS.forEach(col=>{
       for(let k=1;k<=5;k++) table.push({id:`T${t}-${colorNames.get(col)}-${k}`,tier:t,color:col,name:`N${t}-${colorNames.get(col)}-${k}`,desc:`Tier ${t}`,used:false});
@@ -140,10 +144,8 @@ function seedTable(){
   return table;
 }
 
-/* ---------- Engine (sparse leaf-space) ---------- */
-const gap = k => k<=1?0:(1<<(k-2));         // child spacing at tier k in leaf-space
-const spanSize = t => 1<<(t-1);             // leaves covered by a tier-t node
-
+/* ---------- Engine (sparse, leaf-space) ---------- */
+const spanSize = t => 1<<(t-1);
 const Engine=(()=>{
   const parentCount=(s,id)=>Object.values(s.nodes).filter(n=>n.children.length===2 && n.children.includes(id)).length;
 
@@ -181,13 +183,8 @@ const Engine=(()=>{
     return true;
   }
 
-  function colorTakenOnTier(s,tier,color){
-    return s.order[tier].some(id=>s.nodes[id].color===color);
-  }
-  function nodeByTierColor(s,tier,color){
-    const id=s.order[tier].find(id=>s.nodes[id].color===color);
-    return id? s.nodes[id] : null;
-  }
+  const colorTakenOnTier = (s,tier,color)=> s.order[tier].some(id=>s.nodes[id].color===color);
+  const nodeByTierColor  = (s,tier,color)=> { const id=s.order[tier].find(id=>s.nodes[id].color===color); return id? s.nodes[id] : null; };
 
   function addT1(state,itemId,insertAfterId){
     const it=state.table[itemId];
@@ -216,43 +213,35 @@ const Engine=(()=>{
     const lower=A.tier, k=lower+1;
     if(it.tier!==k) return {ok:false,reason:`Pick a tier ${k} item`};
 
-    // if color already used on this tier -> treat as natural extend
+    // Natural extend if (tier,color) exists
     if(colorTakenOnTier(state,k,it.color)){
       const target=nodeByTierColor(state,k,it.color);
       return extendNode(state,target.id,itemId);
     }
 
-    // leaf-space spacing
     const liA=leftLeafIndex(state,A.id), liB=leftLeafIndex(state,B.id);
     if(liA==null||liB==null) return {ok:false,reason:"Cannot locate children"};
     const lo=Math.min(liA,liB), hi=Math.max(liA,liB);
     if(hi-lo!==spanSize(lower)) return {ok:false,reason:`Children must be ${spanSize(lower)} leaves apart`};
 
-    // parent cap & color inheritance
     const pcA=parentCount(state,A.id), pcB=parentCount(state,B.id);
     if(pcA>=MAX_PARENTS_PER_CHILD || pcB>=MAX_PARENTS_PER_CHILD) return {ok:false,reason:`Parent cap ${MAX_PARENTS_PER_CHILD} reached`};
     if(!(it.color===A.color || it.color===B.color)) return {ok:false,reason:"Color mismatch"};
-
-    // duplicate pair on tier k
     if(duplicatePairExists(state,k,lo,hi)) return {ok:false,reason:"Exact pair already used on this tier"};
 
-    // insertion index by leftLeafIndex order
-    const idx=(()=>{
-      let pos=0;
-      for(const pid of state.order[k]){
-        const p=state.nodes[pid]; if(!p||p.children.length!==2) continue;
-        const l=leftLeafIndex(state,p.children[0]); const r=leftLeafIndex(state,p.children[1]);
-        if(Math.min(l,r) >= lo) break;
-        pos++;
-      }
-      return pos;
-    })();
+    // insertion index by left index
+    let pos=0;
+    for(const pid of state.order[k]){
+      const p=state.nodes[pid]; if(!p||p.children.length!==2) continue;
+      const pl=Math.min(leftLeafIndex(state,p.children[0]), leftLeafIndex(state,p.children[1]));
+      if(pl>=lo) break; pos++;
+    }
 
     const parent={id:it.id,itemId:it.id,tier:k,color:it.color,children:[A.id,B.id],stack:[it.id],name:it.name,desc:it.desc};
     const next=copy(state);
     next.nodes[parent.id]=parent;
     if(!next.order[k]) next.order[k]=[];
-    next.order[k].splice(idx,0,parent.id);
+    next.order[k].splice(pos,0,parent.id);
     next.table[it.id]={...it,used:true};
     next.points++;
 
@@ -273,15 +262,22 @@ const Engine=(()=>{
     return {ok:true,state:next,msg:`Extended ${n.name}`};
   }
 
-  function removeExtension(state,nodeId,itemId){
+  function removeChip(state,nodeId,itemId){
     const n=state.nodes[nodeId]; if(!n) return {ok:false,reason:"Unknown node"};
     const idx=(n.stack||[]).indexOf(itemId);
-    if(idx<=0) return {ok:false,reason:"Cannot remove base or not found"};
+    if(idx<0) return {ok:false,reason:"Chip not found"};
     const next=copy(state);
     next.nodes[nodeId].stack.splice(idx,1);
     if(next.table[itemId]) next.table[itemId].used=false;
     next.points=Math.max(0,(next.points||0)-1);
-    return {ok:true,state:next,msg:"Extension removed"};
+    if(next.nodes[nodeId].stack.length===0){
+      const hasParent = Object.values(next.nodes).some(x=>x.children.includes(nodeId));
+      if(hasParent){ return {ok:false,reason:"Cannot remove the last chip: node has parents above"}; }
+      const lane=next.order[n.tier];
+      next.order[n.tier]=lane.filter(id=>id!==nodeId);
+      delete next.nodes[nodeId];
+    }
+    return {ok:true,state:next,msg:"Chip removed"};
   }
 
   function removeNode(state,nodeId){
@@ -301,43 +297,28 @@ const Engine=(()=>{
     if(from<0||from>=lane.length||to<0||to>=lane.length) return {ok:false,reason:"Index out of range"};
     const arr=lane.slice(); const [m]=arr.splice(from,1); arr.splice(to,0,m);
     const next=copy(state); next.order[tier]=arr;
-    if(!tierValidByLeafGrid(next,tier) || (tier+1<=TIER_MAX && !tierValidByLeafGrid(next,tier+1)))
-      return {ok:false,reason:"Swap would cross / violate spans"};
+    const valid = (t)=> t<=0 || t> TIER_MAX || tierValidByLeafGrid(next,t);
+    if(!valid(tier) || !valid(tier+1)) return {ok:false,reason:"Swap would cross / violate spans"};
     return {ok:true,state:next,msg:"Moved"};
   }
 
   function candidatePairsForTier(s,k){
     const lower=k-1, span=spanSize(lower);
-    // Use leaf-space: parents must span exactly 'span' leaves.
-    const pairs=[];
     const idsLower = s.order[lower];
-    // map leaf index for each child (left index)
     const leftIndex = id => leftLeafIndex(s,id);
-    for (let aIdx=0; aIdx<idsLower.length; aIdx++){
-      const A = idsLower[aIdx];
-      const liA = leftIndex(A);
-      if (liA==null) continue;
-      // need partner whose left index is liA+span
-      for (let bIdx=0; bIdx<idsLower.length; bIdx++){
-        if (aIdx===bIdx) continue;
-        const B = idsLower[bIdx];
-        const liB = leftIndex(B);
-        if (liB==null) continue;
-        const lo=Math.min(liA,liB), hi=Math.max(liA,liB);
-        if (hi-lo===span) pairs.push([A,B]);
+    const pairs=[];
+    for(let i=0;i<idsLower.length;i++){
+      for(let j=i+1;j<idsLower.length;j++){
+        const li=leftIndex(idsLower[i]), lj=leftIndex(idsLower[j]);
+        if(li==null||lj==null) continue;
+        const lo=Math.min(li,lj), hi=Math.max(li,lj);
+        if(hi-lo===span) pairs.push([idsLower[i],idsLower[j]]);
       }
     }
-    // unique pairs by (lo,hi)
-    const seen=new Set(), out=[];
-    const pos = new Map(idsLower.map((id,i)=>[id,i]));
-    for(const [A,B] of pairs){
-      const lo=Math.min(pos.get(A),pos.get(B)), hi=Math.max(pos.get(A),pos.get(B));
-      const key=lo+"_"+hi; if(seen.has(key)) continue; seen.add(key); out.push([A,B]);
-    }
-    return out;
+    return pairs;
   }
 
-  return { addT1, addParent, extendNode, removeExtension, removeNode, moveNode, candidatePairsForTier };
+  return { addT1, addParent, extendNode, removeChip, removeNode, moveNode, candidatePairsForTier, leftLeafIndex };
 })();
 
 /* ---------- App state ---------- */
@@ -352,11 +333,11 @@ const restore=s=>{ STATE=JSON.parse(ub64(s)); renderAll("State restored."); upda
 function updatePoints(){ $('#points').textContent=`Points: ${STATE.points||0}`; }
 
 /* ---------- Selection ---------- */
-let selected=new Set(); let EXTEND_FOR=null;
+let selected=new Set();
 function toggleSelect(id){
   if(selected.has(id)) selected.delete(id);
   else if(selected.size<2) selected.add(id);
-  if(selected.size===0){ $('#tierFilter').value='any'; $('#colorFilter').value=''; EXTEND_FOR=null; }
+  if(selected.size===0){ $('#tierFilter').value='any'; $('#colorFilter').value=''; }
   renderAll();
 }
 
@@ -370,6 +351,7 @@ function ensureTierContainers(){
     row.append(lane); c.append(row);
   }
 }
+
 function renderTiers(){
   ensureTierContainers();
   for(let t=1;t<=TIER_MAX;t++){
@@ -377,26 +359,24 @@ function renderTiers(){
     STATE.order[t].forEach(id=>{
       const n=STATE.nodes[id];
       const node=el('div',{class:'node','data-id':n.id,'data-tier':n.tier});
+      node.style.transform='translateX(0px)'; // reset — centering is reapplied after paint
       node.append(el('div',{class:'hdr',onclick:()=>toggleSelect(n.id)},
         el('div',{class:'color-dot',style:`background:${n.color}`}),
         el('div',{class:'title'},n.name||n.id)
       ));
       const parents = Object.values(STATE.nodes).filter(x=>x.children.includes(n.id)).length;
-      node.append(el('div',{class:'meta'},`id:${n.id} · ${n.children.length? '2 children':'leaf'}${n.stack && n.stack.length>1?` · +${n.stack.length-1} ext`:''}${parents?` · parents:${parents}`:''}`));
-      if(n.stack && n.stack.length>1){
+      node.append(el('div',{class:'meta'},`id:${n.id} · ${n.children.length? '2 children':'leaf'}${n.stack && n.stack.length>0?` · chips:${n.stack.length}`:''}${parents?` · parents:${parents}`:''}`));
+      if(n.stack && n.stack.length>0){
         const stack=el('div',{class:'stack'});
-        n.stack.slice(1).forEach(sid=>{
+        n.stack.forEach(sid=>{
           const it=STATE.table[sid];
           const chip=el('span',{class:'chip'}, el('span',{class:'color-dot',style:`background:${n.color}`}), it?it.name:sid);
-          const rm=el('button',{class:'rm',title:'Remove extension',onclick:()=>onRemoveExtension(n.id,sid)},'✕');
+          const rm=el('button',{class:'rm',title:'Remove chip',onclick:()=>onRemoveChip(n.id,sid)},'✕');
           chip.append(rm); stack.append(chip);
         });
         node.append(stack);
       }
       const actions=el('div',{class:'actions'});
-      if(selected.has(n.id)){
-        actions.append(el('button',{class:'pill',onclick:()=>{EXTEND_FOR=n.id; $('#tierFilter').value=String(n.tier); $('#colorFilter').value=n.color; renderLists(); setStatus(`Extend ${n.name}: pick items of same tier & color.`)}},'Extend'));
-      }
       const canDel = !Object.values(STATE.nodes).some(p=>p.children.includes(n.id));
       actions.append(el('button',{class:`pill ${canDel?'err':''}`,disabled:!canDel,onclick:()=>onRemoveNode(n.id)}, canDel?'Delete':'Delete (blocked)'));
       node.append(actions);
@@ -422,9 +402,11 @@ function renderSwapHandles(){
     const handle=el('div',{class:'swap-handle',title:'Swap'});
     handle.addEventListener('mouseenter',()=>{
       const prev=STATE.order[t].slice(); const [m]=prev.splice(pos,1); prev.splice(i,0,m);
-      const saved=STATE.order[t]; STATE.order[t]=prev; renderEdges(); STATE.order[t]=saved;
+      const saved=STATE.order[t]; STATE.order[t]=prev;
+      scheduleLayout();
+      STATE.order[t]=saved; // restore immediately for state, preview is visual only
     });
-    handle.addEventListener('mouseleave',()=>renderEdges());
+    handle.addEventListener('mouseleave',()=>scheduleLayout());
     handle.addEventListener('click',()=>{
       pushUndo();
       const res=Engine.moveNode(STATE,t,pos,i);
@@ -433,6 +415,32 @@ function renderSwapHandles(){
     nodeEl.append(handle);
   });
   if(!any) setStatus("No valid moves for this node under current spans.", true);
+}
+
+/* ---------- Center parents above children (idempotent) ---------- */
+function adjustParentPositions(){
+  const tiersEl=$('#tiers');
+  // 1) reset all transforms (prevents drift)
+  document.querySelectorAll('.node').forEach(n=>{ n.style.transform='translateX(0px)'; });
+
+  // 2) compute after reset
+  for(const n of Object.values(STATE.nodes)){
+    if(n.children.length!==2) continue;
+    const parentEl=document.querySelector(`.node[data-id="${n.id}"]`);
+    const aEl=document.querySelector(`.node[data-id="${n.children[0]}"]`);
+    const bEl=document.querySelector(`.node[data-id="${n.children[1]}"]`);
+    if(!parentEl || !aEl || !bEl) continue;
+    const tR=tiersEl.getBoundingClientRect();
+    const pr=parentEl.getBoundingClientRect();
+    const ar=aEl.getBoundingClientRect();
+    const br=bEl.getBoundingClientRect();
+    const parentCenter = pr.left - tR.left + pr.width/2;
+    const aCenter = ar.left - tR.left + ar.width/2;
+    const bCenter = br.left - tR.left + br.width/2;
+    const mid = (aCenter + bCenter)/2;
+    const delta = mid - parentCenter;
+    parentEl.style.transform = `translateX(${delta}px)`;
+  }
 }
 
 /* ---------- Edges ---------- */
@@ -462,7 +470,12 @@ function renderEdges(){
   }
 }
 
-/* ---------- Lists, filters, suggestions-in-addable ---------- */
+/* ---------- Layout lifecycle ---------- */
+function scheduleLayout(){
+  nextFrame(()=>{ adjustParentPositions(); renderEdges(); });
+}
+
+/* ---------- Lists, filters (sorted + selection scoped) ---------- */
 function updateFilters(){
   const tierSel=$('#tierFilter'), colorSel=$('#colorFilter');
   const prevT=tierSel.value; tierSel.innerHTML=''; tierSel.append(el('option',{value:'any'},'Any'));
@@ -493,66 +506,59 @@ function rowLeaf(item){
 function rowLocked(item,reason){ const row=rowBase(item); row.classList.add('locked'); row.append(el('div',{class:'reason'},reason)); return row; }
 function rowUsed(item){ const row=rowBase(item); row.classList.add('locked'); row.append(el('div',{class:'reason'},'Consumed')); return row; }
 
-function listPairsForItem(item){
-  const k=item.tier, pairs=Engine.candidatePairsForTier(STATE,k);
-  return pairs.map(([L,R])=>[L,R]);
-}
-
-function onAutoExtend(item){
-  // find existing node on this tier with same color and extend
-  const targetId = STATE.order[item.tier].find(id=>STATE.nodes[id].color===item.color);
-  if(!targetId){ setStatus("No target to extend on this tier.", true); return; }
-  pushUndo();
-  const res = Engine.extendNode(STATE, targetId, item.id);
-  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
-}
-
 function rowParents(item,selectedPair){
   const row=rowBase(item);
   const pairsDiv=el('div',{class:'pairs'}); row.append(pairsDiv);
 
-  // NATURAL EXTEND: if color already used on this tier, show a direct Extend button and stop.
-  const existingId = STATE.order[item.tier].find(id=>STATE.nodes[id].color===item.color);
-  if (existingId){
-    const tgt = STATE.nodes[existingId];
-    row.querySelector('.table-head').append(
-      el('button',{class:'pill ok',onclick:()=>onAutoExtend(item)},`Extend ${tgt.name}`)
-    );
-    row.append(el('div',{class:'reason'},'Color already exists on this tier — using Extend.'));
+  // If two nodes selected, show only that exact pair (and only if color matches one child)
+  if(selectedPair){
+    const A=STATE.nodes[selectedPair.a], B=STATE.nodes[selectedPair.b];
+    const matchesColor = (item.color===A.color || item.color===B.color);
+    if(A && B && (A.tier+1===item.tier) && matchesColor){
+      const test=Engine.addParent(STATE,A.id,B.id,item.id);
+      const btn=el('button',{class:`pill ${test.ok?'ok':''}`,disabled:!test.ok,onclick:()=>onAddParent(A.id,B.id,item.id)},
+        el('span',{},'Add with '),
+        el('span',{class:'child-label',style:`color:${A.color}`},A.name),
+        el('span',{},' · '),
+        el('span',{class:'child-label',style:`color:${B.color}`},B.name)
+      );
+      row.querySelector('.table-head').append(btn);
+    } else {
+      row._meta={allReason:"Selected pair cannot form this tier/color."};
+    }
     return row;
   }
 
-  // quick button for exactly selected pair
-  if(selectedPair){
-    const A=STATE.nodes[selectedPair.a], B=STATE.nodes[selectedPair.b];
-    if(A && B && (A.tier+1===item.tier) && (item.color===A.color || item.color===B.color)){
-      const test=Engine.addParent(STATE,A.id,B.id,item.id);
-      row.querySelector('.table-head').append(
-        el('button',{class:`pill ${test.ok?'ok':''}`,disabled:!test.ok,onclick:()=>onAddParent(A.id,B.id,item.id)},'Add with selected pair')
-      );
-    }
-  }
-
-  const pairs=listPairsForItem(item);
-  let good=0,bad=0,lastReason="";
+  // Otherwise, show all candidate pairs but FILTER OUT color-mismatched ones
+  const pairs=Engine.candidatePairsForTier(STATE,item.tier);
+  let good=0,lastReason="";
   for(const [a,b] of pairs){
     const A=STATE.nodes[a], B=STATE.nodes[b];
+    if(!(item.color===A.color || item.color===B.color)) continue; // hide color-mismatch
     const test=Engine.addParent(STATE,a,b,item.id);
-    if(test.ok){
-      good++;
-      const chip=el('button',{class:'chip-btn ok',title:`Add over: ${A.name} · ${B.name}`,
-        onmouseenter:()=>previewAdd(a,b,item),
-        onmouseleave:()=>clearPreview(),
-        onclick:()=>{ clearPreview(); onAddParent(a,b,item.id); }
-      }, `${A.name} · ${B.name}`);
-      pairsDiv.append(chip);
-    }else{
-      bad++; lastReason=test.reason;
-      pairsDiv.append(el('button',{class:'chip-btn locked',title:test.reason,disabled:true}, `${A.name} · ${B.name}`));
-    }
+    const chip=el('button',{class:`chip-btn ${test.ok?'ok':'locked'}`,title:test.ok?'':'Blocked: '+test.reason,disabled:!test.ok,
+      onmouseenter:()=>{ if(test.ok) previewAdd(a,b,item); },
+      onmouseleave:()=>{ if(test.ok) clearPreview(); },
+      onclick:()=>{ if(test.ok){ clearPreview(); onAddParent(a,b,item.id); } }
+    },
+      el('span',{class:'child-label',style:`color:${A.color}`},A.name),
+      el('span',{},'·'),
+      el('span',{class:'child-label',style:`color:${B.color}`},B.name)
+    );
+    pairsDiv.append(chip);
+    if(test.ok) good++; else lastReason=test.reason;
   }
-  if(!pairs.length) row._meta={allReason:`Need children spaced by ${spanSize(item.tier-1)} leaves on tier ${item.tier-1}.`};
-  else if(good===0) row._meta={allReason:lastReason||"No valid pairs under current layout."};
+  if(good===0) row._meta={allReason:lastReason||"No valid color-matching pairs under current layout."};
+  return row;
+}
+
+function rowExtend(item){
+  const row=rowBase(item);
+  const existingId = STATE.order[item.tier].find(id=>STATE.nodes[id].color===item.color);
+  const tgt = existingId ? STATE.nodes[existingId] : null;
+  const btn = el('button',{class:'pill ok',onclick:()=>onAutoExtend(item)}, tgt ? `Extend ${tgt.name}` : 'Extend');
+  row.querySelector('.table-head').append(btn);
+  row.append(el('div',{class:'reason'}, 'Treating (tier,color) as a single node; this adds a chip.'));
   return row;
 }
 
@@ -561,107 +567,79 @@ function renderLists(){
   addable.innerHTML=''; locked.innerHTML=''; used.innerHTML='';
 
   const colorFilter=$('#colorFilter').value||''; const tierFilter=$('#tierFilter').value||'any';
-  const items=Object.values(STATE.table).filter(t=>
+  const itemsRaw=Object.values(STATE.table).filter(t=>
     (!colorFilter || t.color===colorFilter) && (tierFilter==='any' || t.tier===+tierFilter)
   );
 
-  const sel=[...selected]; const hasTwo=sel.length===2; const selTier=hasTwo ? STATE.nodes[sel[0]].tier : null;
-  const selItems=hasTwo ? items.filter(it=>it.tier===selTier+1) : []; const otherItems=hasTwo ? items.filter(it=>it.tier!==selTier+1) : items;
+  const usedItems = itemsRaw.filter(i=>i.used);
+  usedItems.forEach(it=>used.append(rowUsed(it)));
 
-  const group=(label,arr,targetList=addable)=>{
+  const items = itemsRaw.filter(i=>!i.used);
+
+  // selection-scoped view:
+  const sel=[...selected];
+  if(sel.length===2){
+    const tSel = STATE.nodes[sel[0]].tier;
+    const A=STATE.nodes[sel[0]], B=STATE.nodes[sel[1]];
+    // only show parents of tier tSel+1 whose color matches at least one child
+    const parentItems = items
+      .filter(i => i.tier===tSel+1 && (i.color===A.color || i.color===B.color))
+      .sort((a,b)=>b.tier-a.tier);
+    if(parentItems.length){
+      addable.append(el('div',{class:'hint'},'For selected pair only'));
+      parentItems.forEach(item=>{
+        const row=rowParents(item,{a:sel[0],b:sel[1]});
+        const meta=row._meta;
+        if(meta && meta.allReason) locked.append(rowLocked(item,meta.allReason));
+        else addable.append(row);
+      });
+    } else {
+      addable.append(el('div',{class:'hint'},'No addable items for this pair.'));
+    }
+    if(!locked.children.length) locked.append(el('div',{class:'hint'},"Nothing locked here."));
+    if(!used.children.length) used.append(el('div',{class:'hint'},"No items consumed yet."));
+    return; // hide unrelated options while selection is active
+  }
+
+  // normal (no pair selected): parents (tier desc), leaves, extensions last
+  const parentItems = items.filter(i => i.tier>1 && !STATE.order[i.tier].some(id=>STATE.nodes[id].color===i.color)).sort((a,b)=>b.tier-a.tier);
+  const leafItems   = items.filter(i => i.tier===1).sort((a,b)=>a.name.localeCompare(b.name));
+  const extendItems = items.filter(i => i.tier>1 && STATE.order[i.tier].some(id=>STATE.nodes[id].color===i.color));
+
+  const addGroup=(label,arr,isExtend=false)=>{
     if(!arr.length) return;
-    targetList.append(el('div',{class:'hint'},label));
+    addable.append(el('div',{class:'hint'},label));
     for(const item of arr){
-      if(item.used){ used.append(rowUsed(item)); continue; }
-      if(item.tier===1){ targetList.append(rowLeaf(item)); continue; }
-      const row=rowParents(item, hasTwo? {a:sel[0],b:sel[1]} : null);
-      const meta=row._meta;
-      if(meta && meta.allReason) locked.append(rowLocked(item,meta.allReason));
-      else targetList.append(row);
+      if(item.tier===1){ addable.append(rowLeaf(item)); continue; }
+      if(isExtend){ addable.append(rowExtend(item)); }
+      else{
+        const row=rowParents(item,null);
+        const meta=row._meta;
+        if(meta && meta.allReason) locked.append(rowLocked(item,meta.allReason));
+        else addable.append(row);
+      }
     }
   };
-
-  if(hasTwo){ group("For selected pair",selItems); group("Other addable now",otherItems); }
-  else group("Addable now",otherItems);
-
-  // --- Suggestions GO HERE (inside Addable) ---
-  const sugg = buildSuggestions();
-  if (sugg.length){
-    addable.append(el('div',{class:'hint'},'Suggestions (highest tiers first)'));
-    const wrap = el('div',{class:'pairs'});
-    sugg.slice(0,12).forEach(s=>{
-      wrap.append(el('button',{
-        class:'sugg-chip',
-        title:`Add ${s.item.name} over ${s.A.name} · ${s.B.name}`,
-        onclick:()=>onAddParent(s.A.id,s.B.id,s.item.id)
-      }, `T${s.item.tier} ${s.item.name} → ${s.A.name} · ${s.B.name}`));
-    });
-    addable.append(wrap);
-  }
-  // --------------------------------------------
+  addGroup("Parents (highest tiers first)", parentItems);
+  addGroup("Tier 1 leaves", leafItems);
+  addGroup("Extensions (by color — adds a chip)", extendItems, true);
 
   if(!locked.children.length) locked.append(el('div',{class:'hint'},"Nothing locked here."));
   if(!used.children.length) used.append(el('div',{class:'hint'},"No items consumed yet."));
 }
 
-function buildSuggestions(){
-  const out=[];
-  for(let t=TIER_MAX;t>=2;t--){
-    const items=Object.values(STATE.table).filter(it=>!it.used && it.tier===t);
-    for(const it of items){
-      // if color is already present on this tier, suggestion is an extend (skip here; row handles auto-extend)
-      const exists = STATE.order[it.tier].some(id=>STATE.nodes[id].color===it.color);
-      if (exists) continue;
-      const pairs=Engine.candidatePairsForTier(STATE,t);
-      for(const [L,R] of pairs){
-        const probe=Engine.addParent(STATE,L,R,it.id);
-        if(probe.ok){
-          out.push({item:it, A:STATE.nodes[L], B:STATE.nodes[R]});
-          if(out.length>20) return out;
-        }
-      }
-    }
-  }
-  return out;
-}
-
 /* ---------- Preview ---------- */
+let PREVIEW_ACTIVE=false;
 function previewAdd(a,b,item){
-  clearPreview();
-  const A=STATE.nodes[a], B=STATE.nodes[b]; const k=A.tier+1;
-  // temp ghost for edges preview
-  const saved = STATE.order[k]? STATE.order[k].slice() : [];
-  if(!STATE.order[k]) STATE.order[k]=[];
-  const ghost="__PREVIEW__";
-  STATE.nodes[ghost]={id:ghost,name:'preview',desc:'',color:item.color,tier:k,children:[A.id,B.id],stack:[]};
-  // place by leftLeafIndex order
-  const lo = (()=>{ // compute left index of min child
-    const leftIdx = id => {
-      const n=STATE.nodes[id];
-      if(n.tier===1) return STATE.order[1].indexOf(id);
-      const l=STATE.nodes[n.children[0]], r=STATE.nodes[n.children[1]];
-      return Math.min(arguments.callee(l.id), arguments.callee(r.id));
-    };
-    return Math.min(leftIdx(A.id), leftIdx(B.id));
-  })();
-  let pos=0;
-  for(const pid of STATE.order[k]){
-    const p=STATE.nodes[pid]; if(!p||p.children.length!==2) continue;
-    const leftIdx = id => {
-      const n=STATE.nodes[id];
-      if(n.tier===1) return STATE.order[1].indexOf(id);
-      const l=STATE.nodes[n.children[0]], r=STATE.nodes[n.children[1]];
-      return Math.min(arguments.callee(l.id), arguments.callee(r.id));
-    };
-    const pl = Math.min(leftIdx(p.children[0]), leftIdx(p.children[1]));
-    if(pl >= lo) break;
-    pos++;
-  }
-  STATE.order[k].splice(pos,0,ghost);
-  renderEdges();
-  STATE.order[k]=saved; delete STATE.nodes[ghost];
+  PREVIEW_ACTIVE=true;
+  // we don't mutate STATE; preview is just a layout/edge recompute
+  scheduleLayout();
 }
-function clearPreview(){ renderEdges(); }
+function clearPreview(){
+  if(!PREVIEW_ACTIVE) return;
+  PREVIEW_ACTIVE=false;
+  scheduleLayout();
+}
 
 /* ---------- Actions ---------- */
 function onUseLeaf(item){
@@ -675,9 +653,16 @@ function onAddParent(a,b,itemId){
   const res=Engine.addParent(STATE,a,b,itemId);
   if(res.ok){ STATE=res.state; updatePoints(); selected.clear(); renderAll(res.msg); } else setStatus(res.reason,true);
 }
-function onRemoveExtension(nodeId,itemId){
+function onAutoExtend(item){
+  const existingId = STATE.order[item.tier].find(id=>STATE.nodes[id].color===item.color);
+  if(!existingId){ setStatus("No target to extend on this tier.", true); return; }
   pushUndo();
-  const res=Engine.removeExtension(STATE,nodeId,itemId);
+  const res = Engine.extendNode(STATE, existingId, item.id);
+  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
+}
+function onRemoveChip(nodeId,itemId){
+  pushUndo();
+  const res=Engine.removeChip(STATE,nodeId,itemId);
   if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
 }
 function onRemoveNode(id){
@@ -686,7 +671,17 @@ function onRemoveNode(id){
   if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
 }
 
-/* ---------- Filters ---------- */
+/* ---------- Render all ---------- */
+function renderAll(msg,isErr=false){
+  $('#version').textContent = `v${APP_VERSION}`;
+  renderTiers();
+  scheduleLayout(); // two RAFs -> adjust + edges after paint
+  renderLists();
+  updateFiltersUI();
+  setStatus(msg||'Ready.',isErr);
+}
+
+/* ---------- Filters UI ---------- */
 function updateFiltersUI(){
   const tierSel=$('#tierFilter'), colorSel=$('#colorFilter');
   const prevT=tierSel.value; tierSel.innerHTML=''; tierSel.append(el('option',{value:'any'},'Any'));
@@ -696,15 +691,6 @@ function updateFiltersUI(){
   const prevC=colorSel.value; colorSel.innerHTML='<option value="">Any</option>';
   colors.forEach(c=>colorSel.append(el('option',{value:c}, colorNames.get(c)||c)));
   colorSel.value=colors.includes(prevC)?prevC:'';
-}
-function renderListsAndFilters(){ renderLists(); updateFiltersUI(); }
-
-/* ---------- Render all ---------- */
-function renderAll(msg,isErr=false){
-  renderTiers();
-  renderEdges();
-  renderListsAndFilters();
-  setStatus(msg||'Ready.',isErr);
 }
 
 /* ---------- Share / undo / redo / reset ---------- */
@@ -721,12 +707,12 @@ function onReset(){
   pushUndo();
   const table=Object.fromEntries(seedTable().map(it=>[it.id,it]));
   const order={}; for(let t=1;t<=TIER_MAX;t++) order[t]=[];
-  STATE={nodes:{},order,table,points:0}; selected.clear(); EXTEND_FOR=null;
+  STATE={nodes:{},order,table,points:0}; selected.clear();
   renderAll("Reset."); updatePoints();
 }
 
 /* ---------- Events ---------- */
-window.addEventListener('resize',renderEdges);
+window.addEventListener('resize',scheduleLayout);
 document.addEventListener('keydown',e=>{
   if(e.ctrlKey && e.key.toLowerCase()==='z' && !e.shiftKey){e.preventDefault(); onUndo()}
   if(e.ctrlKey && e.key.toLowerCase()==='z' && e.shiftKey){e.preventDefault(); onRedo()}
