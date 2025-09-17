@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tiered Binary Forest Builder — sparse grid + extensions</title>
+<style>
+  :root{--bg:#0f1221;--panel:#161a2e;--muted:#8088a0;--text:#e9ecf1;--accent:#61dafb;--ok:#32d296;--err:#ff6b6b;--warn:#fbbf24;--slot:#202640;--chip:#0b0e1a;--border:#2a3154}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial}
+  *{box-sizing:border-box}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#10142a,#0f1221)}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  header .btnrow{display:flex;gap:8px;flex-wrap:wrap}
+  button,select{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-weight:600}
+  button:hover{filter:brightness(1.1);cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .pill{border-radius:999px;padding:6px 10px}
+  .ok{border-color:#2a5f4b;background:#123427;color:#bff4df}
+  .err{border-color:#6b2a2a;background:#2a1212;color:#ffd1d1}
+  .chip-btn{border:1px solid var(--border);background:var(--chip);border-radius:999px;font-size:12px;padding:4px 8px;margin:2px}
+  .chip-btn.ok{background:#123427;border-color:#2a5f4b}
+  .chip-btn.locked{opacity:.6;cursor:not-allowed}
+  main{display:grid;grid-template-columns:440px 1fr;height:calc(100% - 56px)}
+  aside{border-right:1px solid var(--border);background:var(--panel);overflow:auto}
+  .panel{padding:12px}
+  .section-title{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;margin:10px 0 6px}
+  .hint{font-size:12px;color:var(--muted);margin:6px 0 10px}
+  .table-list{display:grid;grid-template-columns:1fr;gap:6px;margin-top:6px}
+  .table-item{border:1px solid var(--border);border-radius:12px;padding:8px;background:#12162a;display:flex;flex-direction:column;gap:6px}
+  .table-head{display:flex;align-items:center;justify-content:space-between}
+  .table-item.locked{opacity:.65}
+  .color-dot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.35);flex:0 0 16px}
+  .item-meta{display:flex;align-items:center;gap:10px;min-width:0}
+  .item-meta .name{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item-meta .sub{font-size:12px;color:var(--muted)}
+  .reason{font-size:11px;color:var(--muted)}
+  .pairs{display:flex;flex-wrap:wrap;gap:4px}
+  .canvas-wrap{position:relative;overflow:auto}
+  #svgLayer{position:absolute;inset:0;pointer-events:none}
+  .tiers{position:relative;display:flex;flex-direction:column-reverse;gap:28px;padding:24px;min-height:100%;min-width:960px}
+  .tier-row{position:relative;min-height:80px;background:linear-gradient(0deg,transparent 0,transparent 59px,rgba(255,255,255,.05) 60px,transparent 61px);border:1px dashed rgba(255,255,255,.06);border-radius:12px;padding:12px 12px 24px}
+  .tier-label{position:absolute;right:12px;top:8px;font-size:12px;color:var(--muted)}
+  .lane{display:flex;gap:16px;align-items:flex-start;min-height:58px;flex-wrap:nowrap}
+  .node{width:170px;min-height:48px;padding:8px;border-radius:14px;border:2px solid rgba(255,255,255,.15);background:var(--slot);box-shadow:0 4px 16px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:6px;position:relative}
+  .node .hdr{display:flex;align-items:center;gap:8px;cursor:pointer}
+  .node .title{font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .node .meta{font-size:11px;color:var(--muted)}
+  .node.selected{outline:2px solid var(--accent);outline-offset:2px}
+  .swap-handle{position:absolute;right:-10px;top:12px;width:12px;height:24px;border-radius:4px;background:#243056;border:1px solid #3a4570;cursor:pointer}
+  .swap-handle:hover{background:#2e3b6d}
+  .stack{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .stack .chip{display:inline-flex;gap:6px;align-items:center;padding:2px 6px;border:1px solid var(--border);background:var(--chip);border-radius:999px;font-size:11px}
+  .stack .chip .rm{margin-left:6px;border:none;background:transparent;color:#ffd1d1;cursor:pointer}
+  .node .actions{display:flex;gap:6px;margin-top:4px}
+  .footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(19,22,41,.8),rgba(19,22,41,1));backdrop-filter:blur(6px);border-top:1px solid var(--border);padding:10px 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .grow{flex:1}
+  .small{font-size:12px;color:var(--muted)}
+  .counter{font-size:12px;background:#0f1530;border:1px solid var(--border);padding:6px 8px;border-radius:10px}
+  .suggestions{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+  .sugg{font-size:12px;border:1px solid var(--border);background:#0b0e1a;border-radius:999px;padding:4px 8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tiered Binary Forest Builder — sparse grid + extensions</h1>
+  <div class="btnrow">
+    <span id="points" class="counter">Points: 0</span>
+    <button id="undoBtn" title="Ctrl+Z">Undo</button>
+    <button id="redoBtn" title="Ctrl+Shift+Z">Redo</button>
+    <button id="resetBtn">Reset</button>
+    <button id="shareBtn">Copy Share URL</button>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <div class="panel">
+      <div class="section-title">How to use</div>
+      <div class="hint">
+        • Add <b>Tier&nbsp;1</b> leaves from “Addable now” (inserts after selected T1 if any).<br>
+        • For Tier&gt;1: click a parent item and choose a <b>green pair</b>. Grey = reason blocked.<br>
+        • Same color on the same tier must be done via <b>Extend</b> of the existing node (stack).<br>
+        • Select one node to swap (hover handle = preview). Delete only if no parents above.<br>
+        • Click an extension chip’s ✕ to remove that specific extension (refund point).
+      </div>
+
+      <div class="section-title">Suggested next skills (high → low)</div>
+      <div id="suggestions" class="suggestions"></div>
+
+      <div class="section-title">Filters</div>
+      <div class="table-filter" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label for="tierFilter">Tier:</label>
+        <select id="tierFilter"></select>
+        <label for="colorFilter">Color:</label>
+        <select id="colorFilter"><option value="">Any</option></select>
+      </div>
+
+      <div class="section-title">Addable now</div>
+      <div id="tableListAddable" class="table-list"></div>
+
+      <div class="section-title">Locked / not yet achievable</div>
+      <div id="tableListLocked" class="table-list"></div>
+
+      <div class="section-title">Consumed</div>
+      <div id="tableListUsed" class="table-list"></div>
+    </div>
+  </aside>
+
+  <div class="canvas-wrap">
+    <svg id="svgLayer"></svg>
+    <div id="tiers" class="tiers"></div>
+    <div class="footer">
+      <span id="status" class="small">Ready.</span>
+      <div class="grow"></div>
+      <span class="small">Hover a swap handle or pair chip to preview. Ctrl+Z / Ctrl+Shift+Z for undo/redo.</span>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ---------- DOM helpers ---------- */
+const $ = s => document.querySelector(s);
+const el = (t,a={},...k)=>{const n=document.createElement(t),B=new Set(["disabled","checked","selected","hidden","readonly","multiple","required","autofocus","open","controls","loop","muted","playsinline"]);for(const[p,v]of Object.entries(a)){if(p==="class"){n.className=v;continue}if(p==="style"){n.style.cssText=v;continue}if(p.startsWith("on")&&typeof v==="function"){n.addEventListener(p.slice(2),v);continue}if(B.has(p)){if(v)n.setAttribute(p,"");else n.removeAttribute(p);continue}if(v!==null&&v!==undefined)n.setAttribute(p,v)}for(const c of k)n.append(c);return n};
+const copy=x=>JSON.parse(JSON.stringify(x));
+const b64u=s=>btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const ub64=s=>decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/') + (s.length%4?'='.repeat(4-(s.length%4)):''))));
+const setStatus=(m,e=false)=>{$('#status').textContent=m;$('#status').className='small '+(e?'err':'')};
+
+/* ---------- Data seed ---------- */
+const TIER_MAX=5, MAX_PARENTS_PER_CHILD=2;
+const BASE_COLORS=["#e74c3c","#e67e22","#f1c40f","#2ecc71","#1abc9c","#3498db","#9b59b6","#34495e","#e84393","#fd79a8","#00cec9","#0984e3","#6c5ce7","#55efc4","#ffeaa7","#d63031"];
+const colorNames=new Map(BASE_COLORS.map((c,i)=>[c,`C${String(i+1).padStart(2,'0')}`]));
+
+function seedTable(){
+  const table=[];
+  // Tier 1: exactly one per color
+  BASE_COLORS.forEach((col,i)=>table.push({id:`T1-${i+1}`,tier:1,color:col,name:`Leaf ${i+1}`,desc:`Tier 1 / ${colorNames.get(col)}`,used:false}));
+  // Tiers 2..5: 5 per color
+  for(let t=2;t<=TIER_MAX;t++){
+    BASE_COLORS.forEach(col=>{
+      for(let k=1;k<=5;k++) table.push({id:`T${t}-${colorNames.get(col)}-${k}`,tier:t,color:col,name:`N${t}-${colorNames.get(col)}-${k}`,desc:`Tier ${t}`,used:false});
+    });
+  }
+  return table;
+}
+
+/* ---------- Engine (sparse leaf-space) ---------- */
+const gap = k => k<=1?0:(1<<(k-2));         // spacing between children at tier k based on leaf-space
+const spanSize = t => 1<<(t-1);             // how many leaves a node at tier t covers
+
+const Engine=(()=>{
+  const parentCount=(s,id)=>Object.values(s.nodes).filter(n=>n.children.length===2 && n.children.includes(id)).length;
+
+  // leaf-space left index
+  function leftLeafIndex(s,id){
+    const n=s.nodes[id]; if(!n) return null;
+    if(n.tier===1) return s.order[1].indexOf(id);
+    // min of children’s left indices
+    const a=leftLeafIndex(s,n.children[0]); const b=leftLeafIndex(s,n.children[1]);
+    if(a==null||b==null) return null;
+    return Math.min(a,b);
+  }
+
+  // map: tier -> { leftIndex -> [nodeIds] }
+  function leftIndexMap(s,tier){
+    const m=new Map();
+    for(const id of s.order[tier]){
+      const li=leftLeafIndex(s,id);
+      if(li==null) continue;
+      if(!m.has(li)) m.set(li,[]);
+      m.get(li).push(id);
+    }
+    return m;
+  }
+
+  function duplicatePairExists(s,k,liL,liR){
+    const below=s.order[k-1];
+    for(const pid of s.order[k]){
+      const p=s.nodes[pid]; if(!p||p.children.length!==2) continue;
+      const l=leftLeafIndex(s,p.children[0]); const r=leftLeafIndex(s,p.children[1]);
+      const plo=Math.min(l,r), phi=Math.max(l,r);
+      if(plo===liL && phi===liR) return true;
+    }
+    return false;
+  }
+
+  function tierValidByLeafGrid(s,tier){
+    if(tier<=1) return true;
+    const lower=tier-1, childSpan=spanSize(lower);
+    let prevRight=-1;
+    for(const pid of s.order[tier]){
+      const p=s.nodes[pid]; if(!p||p.children.length!==2) continue;
+      const l=leftLeafIndex(s,p.children[0]), r=leftLeafIndex(s,p.children[1]);
+      if(l==null||r==null) return false;
+      const lo=Math.min(l,r), hi=Math.max(l,r);
+      if(hi-lo!==childSpan) return false;     // spacing must match exact span
+      if(lo<prevRight) return false;          // non-overlapping, ordered
+      prevRight=hi+0;                         // allow touching endpoints
+    }
+    return true;
+  }
+
+  // Color uniqueness per tier (except via extension)
+  function colorTakenOnTier(s,tier,color){
+    return s.order[tier].some(id=>s.nodes[id].color===color);
+  }
+
+  function addT1(state,itemId,insertAfterId){
+    const it=state.table[itemId];
+    if(!it) return {ok:false,reason:"Unknown item"};
+    if(it.used) return {ok:false,reason:"Item already used"};
+    if(it.tier!==1) return {ok:false,reason:"Not tier 1"};
+    const lane=state.order[1];
+    let idx = lane.length;
+    if(insertAfterId){ const j=lane.indexOf(insertAfterId); idx = j>=0? j+1 : lane.length; }
+    const node={id:it.id,itemId:it.id,tier:1,color:it.color,children:[],stack:[it.id],name:it.name,desc:it.desc};
+    const next=copy(state);
+    next.nodes[node.id]=node;
+    next.order[1]=[...lane.slice(0,idx),node.id,...lane.slice(idx)];
+    next.table[it.id]={...it,used:true};
+    next.points++;
+    return {ok:true,state:next,msg:`Added ${it.name}`};
+  }
+
+  function addParent(state,leftId,rightId,itemId){
+    const it=state.table[itemId];
+    if(!it) return {ok:false,reason:"Unknown item"};
+    if(it.used) return {ok:false,reason:"Item already used"};
+    const A=state.nodes[leftId], B=state.nodes[rightId];
+    if(!A||!B) return {ok:false,reason:"Missing child"};
+    if(A.tier!==B.tier) return {ok:false,reason:"Children must be same tier"};
+    const lower=A.tier, k=lower+1;
+    if(it.tier!==k) return {ok:false,reason:`Pick a tier ${k} item`};
+
+    // color uniqueness per tier (no second node of same color; must extend)
+    if(colorTakenOnTier(state,k,it.color))
+      return {ok:false,reason:"Color already used on this tier — use Extend"};
+
+    // leaf-space spacing
+    const liA=leftLeafIndex(state,A.id), liB=leftLeafIndex(state,B.id);
+    if(liA==null||liB==null) return {ok:false,reason:"Cannot locate children"};
+    const lo=Math.min(liA,liB), hi=Math.max(liA,liB);
+    if(hi-lo!==spanSize(lower)) return {ok:false,reason:`Children must be ${spanSize(lower)} leaves apart`};
+
+    // parent cap & color inheritance
+    const pcA=parentCount(state,A.id), pcB=parentCount(state,B.id);
+    if(pcA>=MAX_PARENTS_PER_CHILD || pcB>=MAX_PARENTS_PER_CHILD) return {ok:false,reason:`Parent cap ${MAX_PARENTS_PER_CHILD} reached`};
+    if(!(it.color===A.color || it.color===B.color)) return {ok:false,reason:"Color mismatch"};
+
+    // duplicate pair on tier k
+    if(duplicatePairExists(state,k,lo,hi)) return {ok:false,reason:"Exact pair already used on this tier"};
+
+    // insertion index by leftLeafIndex order
+    const idx=(()=>{
+      let pos=0;
+      for(const pid of state.order[k]){
+        const p=state.nodes[pid]; if(!p||p.children.length!==2) continue;
+        const l=leftLeafIndex(state,p.children[0]); const r=leftLeafIndex(state,p.children[1]);
+        if(Math.min(l,r) >= lo) break;
+        pos++;
+      }
+      return pos;
+    })();
+
+    const parent={id:it.id,itemId:it.id,tier:k,color:it.color,children:[A.id,B.id],stack:[it.id],name:it.name,desc:it.desc};
+    const next=copy(state);
+    next.nodes[parent.id]=parent;
+    if(!next.order[k]) next.order[k]=[];
+    next.order[k].splice(idx,0,parent.id);
+    next.table[it.id]={...it,used:true};
+    next.points++;
+
+    if(!tierValidByLeafGrid(next,k) || (k+1<=TIER_MAX && !tierValidByLeafGrid(next,k+1)))
+      return {ok:false,reason:"Would cause crossings"};
+
+    return {ok:true,state:next,msg:`Added ${it.name}`};
+  }
+
+  function extendNode(state,nodeId,itemId){
+    const n=state.nodes[nodeId]; if(!n) return {ok:false,reason:"Unknown node"};
+    const it=state.table[itemId]; if(!it||it.used) return {ok:false,reason:"Item unavailable"};
+    if(it.tier!==n.tier || it.color!==n.color) return {ok:false,reason:"Tier/color mismatch"};
+    const next=copy(state);
+    next.nodes[nodeId].stack.push(it.id);
+    next.table[it.id]={...it,used:true};
+    next.points++;
+    return {ok:true,state:next,msg:"Extended"};
+  }
+
+  function removeExtension(state,nodeId,itemId){
+    const n=state.nodes[nodeId]; if(!n) return {ok:false,reason:"Unknown node"};
+    const idx=(n.stack||[]).indexOf(itemId);
+    if(idx<=0) return {ok:false,reason:"Cannot remove base or not found"};
+    const next=copy(state);
+    next.nodes[nodeId].stack.splice(idx,1);
+    if(next.table[itemId]) next.table[itemId].used=false;
+    next.points=Math.max(0,(next.points||0)-1);
+    return {ok:true,state:next,msg:"Extension removed"};
+  }
+
+  function removeNode(state,nodeId){
+    // must have no parents above
+    const hasParent = Object.values(state.nodes).some(n=>n.children.length===2 && n.children.includes(nodeId));
+    if(hasParent) return {ok:false,reason:"Remove parents first"};
+    const n=state.nodes[nodeId]; if(!n) return {ok:false,reason:"Unknown node"};
+    const next=copy(state);
+    next.order[n.tier]=next.order[n.tier].filter(id=>id!==nodeId);
+    for(const sid of n.stack||[n.itemId]) if(next.table[sid]) next.table[sid].used=false;
+    delete next.nodes[nodeId];
+    next.points=Math.max(0,(next.points||0)-(n.stack?.length||1));
+    return {ok:true,state:next,msg:"Removed"};
+  }
+
+  function moveNode(state,tier,from,to){
+    const lane=state.order[tier]; if(!lane) return {ok:false,reason:"Bad tier"};
+    if(from<0||from>=lane.length||to<0||to>=lane.length) return {ok:false,reason:"Index out of range"};
+    const arr=lane.slice(); const [m]=arr.splice(from,1); arr.splice(to,0,m);
+    const next=copy(state); next.order[tier]=arr;
+    if(!tierValidByLeafGrid(next,tier) || (tier+1<=TIER_MAX && !tierValidByLeafGrid(next,tier+1)))
+      return {ok:false,reason:"Swap would cross"};
+    return {ok:true,state:next,msg:"Moved"};
+  }
+
+  // For suggestions / pair chips: compute leaf-space windows
+  function candidatePairsForTier(s,k){
+    const lower=k-1, span=spanSize(lower);
+    const map=leftIndexMap(s,lower);
+    const pairs=[];
+    for(const [li, listL] of map.entries()){
+      const listR = map.get(li+span) || [];
+      for(const L of listL) for(const R of listR) pairs.push([L,R,li,li+span]);
+    }
+    return pairs;
+  }
+
+  return { addT1, addParent, extendNode, removeExtension, removeNode, moveNode, leftLeafIndex, candidatePairsForTier };
+})();
+
+/* ---------- App state ---------- */
+let STATE = (()=>{
+  const table = Object.fromEntries(seedTable().map(it=>[it.id,it]));
+  const order={}; for(let t=1;t<=TIER_MAX;t++) order[t]=[];
+  return { nodes:{}, order, table, points:0 };
+})();
+let UNDO=[], REDO=[];
+const pushUndo=()=>{ UNDO.push(b64u(JSON.stringify(STATE))); if(UNDO.length>500) UNDO.shift(); REDO.length=0; };
+const restore=s=>{ STATE=JSON.parse(ub64(s)); renderAll("State restored."); updatePoints(); };
+function updatePoints(){ $('#points').textContent=`Points: ${STATE.points||0}`; }
+
+/* ---------- Selection ---------- */
+let selected=new Set(); let EXTEND_FOR=null;
+function toggleSelect(id){
+  if(selected.has(id)) selected.delete(id);
+  else if(selected.size<2) selected.add(id);
+  if(selected.size===0){ $('#tierFilter').value='any'; $('#colorFilter').value=''; EXTEND_FOR=null; }
+  renderAll();
+}
+
+/* ---------- Render: tiers & nodes ---------- */
+function ensureTierContainers(){
+  const c=$('#tiers'); c.innerHTML='';
+  for(let t=1;t<=TIER_MAX;t++){
+    const row=el('div',{class:'tier-row','data-tier':t});
+    row.append(el('div',{class:'tier-label'},`Tier ${t}`));
+    const lane=el('div',{class:'lane','data-tier':t});
+    row.append(lane); c.append(row);
+  }
+}
+function renderTiers(){
+  ensureTierContainers();
+  for(let t=1;t<=TIER_MAX;t++){
+    const lane=document.querySelector(`.lane[data-tier="${t}"]`); lane.innerHTML='';
+    STATE.order[t].forEach(id=>{
+      const n=STATE.nodes[id];
+      const node=el('div',{class:'node','data-id':n.id,'data-tier':n.tier});
+      node.append(el('div',{class:'hdr',onclick:()=>toggleSelect(n.id)},
+        el('div',{class:'color-dot',style:`background:${n.color}`}),
+        el('div',{class:'title'},n.name||n.id)
+      ));
+      const parents = Object.values(STATE.nodes).filter(x=>x.children.includes(n.id)).length;
+      node.append(el('div',{class:'meta'},`id:${n.id} · ${n.children.length? '2 children':'leaf'}${n.stack && n.stack.length>1?` · +${n.stack.length-1} ext`:''}${parents?` · parents:${parents}`:''}`));
+      if(n.stack && n.stack.length>1){
+        const stack=el('div',{class:'stack'});
+        n.stack.slice(1).forEach(sid=>{
+          const it=STATE.table[sid];
+          const chip=el('span',{class:'chip'}, el('span',{class:'color-dot',style:`background:${n.color}`}), it?it.name:sid);
+          const rm=el('button',{class:'rm',title:'Remove extension',onclick:()=>onRemoveExtension(n.id,sid)},'✕');
+          chip.append(rm); stack.append(chip);
+        });
+        node.append(stack);
+      }
+      const actions=el('div',{class:'actions'});
+      if(selected.has(n.id)){
+        actions.append(el('button',{class:'pill',onclick:()=>{EXTEND_FOR=n.id; $('#tierFilter').value=String(n.tier); $('#colorFilter').value=n.color; renderLists(); setStatus(`Extend ${n.name}: pick items of same tier & color.`)}},'Extend'));
+      }
+      const canDel = !Object.values(STATE.nodes).some(p=>p.children.includes(n.id));
+      actions.append(el('button',{class:`pill ${canDel?'err':''}`,disabled:!canDel,onclick:()=>onRemoveNode(n.id)}, canDel?'Delete':'Delete (blocked)'));
+      node.append(actions);
+      if(selected.has(n.id)) node.classList.add('selected');
+      lane.append(node);
+    });
+  }
+  renderSwapHandles();
+}
+
+function renderSwapHandles(){
+  if(selected.size!==1) return;
+  const id=[...selected][0]; const n=STATE.nodes[id];
+  const t=n.tier; const lane=document.querySelector(`.lane[data-tier="${t}"]`);
+  const arr=STATE.order[t]; const pos=arr.indexOf(id);
+  const nodes=Array.from(lane.querySelectorAll('.node'));
+  nodes.forEach((nodeEl,i)=>{
+    if(i===pos) return;
+    const r=Engine.moveNode(STATE,t,pos,i);
+    if(!r.ok) return;
+    const handle=el('div',{class:'swap-handle',title:'Swap'});
+    handle.addEventListener('mouseenter',()=>{
+      const prev=STATE.order[t].slice(); const [m]=prev.splice(pos,1); prev.splice(i,0,m);
+      const saved=STATE.order[t]; STATE.order[t]=prev; renderEdges(); STATE.order[t]=saved;
+    });
+    handle.addEventListener('mouseleave',()=>renderEdges());
+    handle.addEventListener('click',()=>{
+      pushUndo();
+      const res=Engine.moveNode(STATE,t,pos,i);
+      if(res.ok){ STATE=res.state; renderAll("Swap OK."); } else setStatus(res.reason,true);
+    });
+    nodeEl.append(handle);
+  });
+}
+
+/* ---------- Edges ---------- */
+function renderEdges(){
+  const svg=$('#svgLayer'); const tiersEl=$('#tiers');
+  const rect=tiersEl.getBoundingClientRect();
+  const width=Math.max(tiersEl.scrollWidth,rect.width), height=Math.max(tiersEl.scrollHeight,rect.height);
+  svg.setAttribute('width',width); svg.setAttribute('height',height);
+  svg.innerHTML=''; // clear thoroughly
+  const centers=new Map();
+  for(const id of Object.keys(STATE.nodes)){
+    const nodeEl=document.querySelector(`.node[data-id="${id}"]`); if(!nodeEl) continue;
+    const r=nodeEl.getBoundingClientRect(), tR=tiersEl.getBoundingClientRect();
+    centers.set(id,{x:r.left-tR.left+r.width/2+tiersEl.scrollLeft,y:r.top-tR.top+r.height/2+tiersEl.scrollTop});
+  }
+  for(const n of Object.values(STATE.nodes)){
+    if(n.children.length===2){
+      const p=centers.get(n.id), a=centers.get(n.children[0]), b=centers.get(n.children[1]);
+      if(!p||!a||!b) continue;
+      for(const c of [a,b]){
+        const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1',p.x); line.setAttribute('y1',p.y); line.setAttribute('x2',c.x); line.setAttribute('y2',c.y);
+        line.setAttribute('stroke','rgba(255,255,255,0.45)'); line.setAttribute('stroke-width','2');
+        svg.appendChild(line);
+      }
+    }
+  }
+}
+
+/* ---------- Lists, filters, suggestions ---------- */
+function updateFilters(){
+  const tierSel=$('#tierFilter'), colorSel=$('#colorFilter');
+  const prevT=tierSel.value; tierSel.innerHTML=''; tierSel.append(el('option',{value:'any'},'Any'));
+  for(let t=1;t<=TIER_MAX;t++) tierSel.append(el('option',{value:String(t)},`Tier ${t}`));
+  tierSel.value=(prevT && (prevT==='any' || (+prevT>=1 && +prevT<=TIER_MAX)))? prevT : 'any';
+  const colors=[...new Set(Object.values(STATE.table).map(t=>t.color))];
+  const prevC=colorSel.value; colorSel.innerHTML='<option value="">Any</option>';
+  colors.forEach(c=>colorSel.append(el('option',{value:c}, colorNames.get(c)||c)));
+  colorSel.value=colors.includes(prevC)?prevC:'';
+}
+
+function rowBase(item){
+  const row=el('div',{class:'table-item'});
+  const head=el('div',{class:'table-head'},
+    el('div',{class:'item-meta'},
+      el('div',{class:'color-dot',style:`background:${item.color}`}),
+      el('div',{class:'name'},item.name),
+      el('div',{class:'sub'},`Tier ${item.tier} · ${colorNames.get(item.color)}`)
+    )
+  );
+  row.append(head); return row;
+}
+function rowLeaf(item){
+  const row=rowBase(item);
+  row.querySelector('.table-head').append(el('button',{class:'pill ok',onclick:()=>onUseLeaf(item)},'Use'));
+  return row;
+}
+function rowLocked(item,reason){ const row=rowBase(item); row.classList.add('locked'); row.append(el('div',{class:'reason'},reason)); return row; }
+function rowUsed(item){ const row=rowBase(item); row.classList.add('locked'); row.append(el('div',{class:'reason'},'Consumed')); return row; }
+
+function listPairsForItem(item){
+  const k=item.tier, pairs=Engine.candidatePairsForTier(STATE,k);
+  return pairs.map(([L,R,liA,liB])=>[L,R]); // children IDs only
+}
+
+function rowParents(item,selectedPair){
+  const row=rowBase(item);
+  const pairsDiv=el('div',{class:'pairs'}); row.append(pairsDiv);
+
+  // quick button for exactly selected pair
+  if(selectedPair){
+    const A=STATE.nodes[selectedPair.a], B=STATE.nodes[selectedPair.b];
+    if(A && B && (A.tier+1===item.tier) && (item.color===A.color || item.color===B.color)){
+      const test=Engine.addParent(STATE,A.id,B.id,item.id);
+      row.querySelector('.table-head').append(
+        el('button',{class:`pill ${test.ok?'ok':''}`,disabled:!test.ok,onclick:()=>onAddParent(A.id,B.id,item.id)},'Add with selected pair')
+      );
+    }
+  }
+
+  // If same color already taken on this tier, short-circuit to locked
+  if(STATE.order[item.tier].some(id=>STATE.nodes[id].color===item.color)){
+    row._meta={allReason:"Color already used on this tier — use Extend"};
+    return row;
+  }
+
+  const pairs=listPairsForItem(item);
+  let good=0,bad=0,lastReason="";
+  for(const [a,b] of pairs){
+    const A=STATE.nodes[a], B=STATE.nodes[b];
+    const test=Engine.addParent(STATE,a,b,item.id);
+    if(test.ok){
+      good++;
+      const chip=el('button',{class:'chip-btn ok',title:`Add over: ${A.name} · ${B.name}`,
+        onmouseenter:()=>previewAdd(a,b,item),
+        onmouseleave:()=>clearPreview(),
+        onclick:()=>{ clearPreview(); onAddParent(a,b,item.id); }
+      }, `${A.name} · ${B.name}`);
+      pairsDiv.append(chip);
+    }else{
+      bad++; lastReason=test.reason;
+      pairsDiv.append(el('button',{class:'chip-btn locked',title:test.reason,disabled:true}, `${A.name} · ${B.name}`));
+    }
+  }
+  if(!pairs.length) row._meta={allReason:`Need children spaced by ${spanSize(item.tier-1)} leaves on tier ${item.tier-1}.`};
+  else if(good===0) row._meta={allReason:lastReason||"No valid pairs under current layout."};
+  return row;
+}
+
+function renderLists(){
+  const addable=$('#tableListAddable'), locked=$('#tableListLocked'), used=$('#tableListUsed');
+  addable.innerHTML=''; locked.innerHTML=''; used.innerHTML='';
+
+  const colorFilter=$('#colorFilter').value||''; const tierFilter=$('#tierFilter').value||'any';
+  const items=Object.values(STATE.table).filter(t=>
+    (!colorFilter || t.color===colorFilter) && (tierFilter==='any' || t.tier===+tierFilter)
+  );
+
+  const sel=[...selected]; const hasTwo=sel.length===2; const selTier=hasTwo ? STATE.nodes[sel[0]].tier : null;
+  const selItems=hasTwo ? items.filter(it=>it.tier===selTier+1) : []; const otherItems=hasTwo ? items.filter(it=>it.tier!==selTier+1) : items;
+
+  const group=(label,arr)=>{
+    if(!arr.length) return;
+    addable.append(el('div',{class:'hint'},label));
+    for(const item of arr){
+      if(item.used){ used.append(rowUsed(item)); continue; }
+      if(item.tier===1){ addable.append(rowLeaf(item)); continue; }
+      const row=rowParents(item, hasTwo? {a:sel[0],b:sel[1]} : null);
+      const meta=row._meta;
+      if(meta && meta.allReason) locked.append(rowLocked(item,meta.allReason));
+      else addable.append(row);
+    }
+  };
+
+  if(hasTwo){ group("For selected pair",selItems); group("Other addable now",otherItems); }
+  else group("Addable now",otherItems);
+
+  if(!locked.children.length) locked.append(el('div',{class:'hint'},"Nothing locked here."));
+  if(!used.children.length) used.append(el('div',{class:'hint'},"No items consumed yet."));
+
+  renderSuggestions();
+}
+
+function renderSuggestions(){
+  const box=$('#suggestions'); box.innerHTML='';
+  // compute all addable parents, sort by tier desc
+  const sugg=[];
+  for(let t=TIER_MAX;t>=2;t--){
+    const items=Object.values(STATE.table).filter(it=>!it.used && it.tier===t);
+    for(const it of items){
+      if(STATE.order[t].some(id=>STATE.nodes[id].color===it.color)) continue; // color already used this tier
+      const pairs=Engine.candidatePairsForTier(STATE,t);
+      for(const [L,R] of pairs){
+        const probe=Engine.addParent(STATE,L,R,it.id);
+        if(probe.ok){ const A=STATE.nodes[L], B=STATE.nodes[R]; sugg.push({tier:t, text:`T${t} ${it.name} over ${A.name} · ${B.name}`}); if(sugg.length>16) break; }
+      }
+      if(sugg.length>16) break;
+    }
+    if(sugg.length>16) break;
+  }
+  if(sugg.length===0){ box.append(el('span',{class:'small'},"No higher-tier additions available.")); return; }
+  sugg.slice(0,12).forEach(s=> box.append(el('span',{class:'sugg'}, s.text)));
+}
+
+/* ---------- Preview ---------- */
+function previewAdd(a,b,item){
+  clearPreview();
+  const A=STATE.nodes[a], B=STATE.nodes[b]; const k=A.tier+1;
+  // Build a temporary ghost order for drawing only
+  const lo=Math.min(Engine.leftLeafIndex(STATE,A.id), Engine.leftLeafIndex(STATE,B.id));
+  let pos=0;
+  for(const pid of STATE.order[k]){
+    const p=STATE.nodes[pid];
+    const l=Engine.leftLeafIndex(STATE,p.children[0]);
+    const r=Engine.leftLeafIndex(STATE,p.children[1]);
+    if(Math.min(l,r) >= lo) break;
+    pos++;
+  }
+  const ghost="__PREVIEW__";
+  const saved=STATE.order[k]? STATE.order[k].slice():[];
+  if(!STATE.order[k]) STATE.order[k]=[];
+  STATE.nodes[ghost]={id:ghost,name:'preview',desc:'',color:item.color,tier:k,children:[A.id,B.id],stack:[]};
+  STATE.order[k].splice(pos,0,ghost);
+  renderEdges();
+  // restore
+  STATE.order[k]=saved; delete STATE.nodes[ghost];
+}
+function clearPreview(){ renderEdges(); }
+
+/* ---------- Actions ---------- */
+function onUseLeaf(item){
+  pushUndo();
+  const selLeaf=[...selected].map(id=>STATE.nodes[id]).find(n=>n && n.tier===1);
+  const res=Engine.addT1(STATE,item.id, selLeaf? selLeaf.id : undefined);
+  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
+}
+function onAddParent(a,b,itemId){
+  pushUndo();
+  const res=Engine.addParent(STATE,a,b,itemId);
+  if(res.ok){ STATE=res.state; updatePoints(); selected.clear(); renderAll(res.msg); } else setStatus(res.reason,true);
+}
+function onExtend(item){
+  if(!EXTEND_FOR){ setStatus("Select a node and click Extend.",true); return; }
+  pushUndo();
+  const res=Engine.extendNode(STATE,EXTEND_FOR,item.id);
+  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
+}
+function onRemoveExtension(nodeId,itemId){
+  pushUndo();
+  const res=Engine.removeExtension(STATE,nodeId,itemId);
+  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
+}
+function onRemoveNode(id){
+  pushUndo();
+  const res=Engine.removeNode(STATE,id);
+  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
+}
+
+/* ---------- Lists & filters ---------- */
+function updateFiltersUI(){
+  const tierSel=$('#tierFilter'), colorSel=$('#colorFilter');
+  const prevT=tierSel.value; tierSel.innerHTML=''; tierSel.append(el('option',{value:'any'},'Any'));
+  for(let t=1;t<=TIER_MAX;t++) tierSel.append(el('option',{value:String(t)},`Tier ${t}`));
+  tierSel.value=(prevT && (prevT==='any'||(+prevT>=1&&+prevT<=TIER_MAX)))? prevT:'any';
+  const colors=[...new Set(Object.values(STATE.table).map(t=>t.color))];
+  const prevC=colorSel.value; colorSel.innerHTML='<option value="">Any</option>';
+  colors.forEach(c=>colorSel.append(el('option',{value:c}, colorNames.get(c)||c)));
+  colorSel.value=colors.includes(prevC)?prevC:'';
+}
+function renderListsAndFilters(){ renderLists(); updateFiltersUI(); }
+
+/* ---------- Render all ---------- */
+function renderAll(msg,isErr=false){
+  renderTiers();
+  renderEdges(); // re-draw edges after any change to avoid stale lines
+  renderListsAndFilters();
+  setStatus(msg||'Ready.',isErr);
+}
+
+/* ---------- Share/undo/redo/reset ---------- */
+function encodeState(){ return b64u(JSON.stringify(STATE)); }
+function tryLoadFromHash(){
+  if(location.hash.startsWith("#S=")){
+    try{ STATE=JSON.parse(ub64(location.hash.slice(3))); }catch{}
+  }
+}
+function onShare(){ const url=`${location.origin}${location.pathname}#S=${encodeState()}`; navigator.clipboard?.writeText(url).then(()=>setStatus("Share URL copied.")); }
+function onUndo(){ if(!UNDO.length) return; const cur=b64u(JSON.stringify(STATE)); REDO.push(cur); const prev=UNDO.pop(); restore(prev); }
+function onRedo(){ if(!REDO.length) return; const cur=b64u(JSON.stringify(STATE)); UNDO.push(cur); const next=REDO.pop(); restore(next); }
+function onReset(){
+  pushUndo();
+  const table=Object.fromEntries(seedTable().map(it=>[it.id,it]));
+  const order={}; for(let t=1;t<=TIER_MAX;t++) order[t]=[];
+  STATE={nodes:{},order,table,points:0}; selected.clear(); EXTEND_FOR=null;
+  renderAll("Reset."); updatePoints();
+}
+
+/* ---------- Events ---------- */
+window.addEventListener('resize',renderEdges);
+document.addEventListener('keydown',e=>{
+  if(e.ctrlKey && e.key.toLowerCase()==='z' && !e.shiftKey){e.preventDefault(); onUndo()}
+  if(e.ctrlKey && e.key.toLowerCase()==='z' && e.shiftKey){e.preventDefault(); onRedo()}
+});
+$('#tierFilter')?.addEventListener('change',()=>renderLists());
+$('#colorFilter')?.addEventListener('change',()=>renderLists());
+
+/* ---------- Boot ---------- */
+(function boot(){
+  tryLoadFromHash();
+  $('#undoBtn').addEventListener('click',onUndo);
+  $('#redoBtn').addEventListener('click',onRedo);
+  $('#resetBtn').addEventListener('click',onReset);
+  $('#shareBtn').addEventListener('click',onShare);
+  updatePoints();
+  renderAll("Initialized. Add Tier-1 leaves, then build upward.");
+})();
+</script>
+</body>
+</html>
