@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tiered Binary Forest Builder — sparse grid + extensions</title>
+<title>Tiered Binary Forest Builder — sparse grid + natural extend</title>
 <style>
   :root{--bg:#0f1221;--panel:#161a2e;--muted:#8088a0;--text:#e9ecf1;--accent:#61dafb;--ok:#32d296;--err:#ff6b6b;--warn:#fbbf24;--slot:#202640;--chip:#0b0e1a;--border:#2a3154}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial}
@@ -56,13 +56,12 @@
   .grow{flex:1}
   .small{font-size:12px;color:var(--muted)}
   .counter{font-size:12px;background:#0f1530;border:1px solid var(--border);padding:6px 8px;border-radius:10px}
-  .suggestions{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
-  .sugg{font-size:12px;border:1px solid var(--border);background:#0b0e1a;border-radius:999px;padding:4px 8px}
+  .sugg-chip{font-size:12px;border:1px solid var(--border);background:#0b0e1a;border-radius:999px;padding:4px 8px;margin:2px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Tiered Binary Forest Builder — sparse grid + extensions</h1>
+  <h1>Tiered Binary Forest Builder — sparse grid + natural extend</h1>
   <div class="btnrow">
     <span id="points" class="counter">Points: 0</span>
     <button id="undoBtn" title="Ctrl+Z">Undo</button>
@@ -78,14 +77,11 @@
       <div class="section-title">How to use</div>
       <div class="hint">
         • Add <b>Tier&nbsp;1</b> leaves from “Addable now” (inserts after selected T1 if any).<br>
-        • For Tier&gt;1: click a parent item and choose a <b>green pair</b>. Grey = reason blocked.<br>
-        • Same color on the same tier must be done via <b>Extend</b> of the existing node (stack).<br>
+        • Tier&gt;1: click a parent item, then a <b>green pair</b>. Grey = reason blocked.<br>
+        • If this tier already has that <b>color</b>, clicking its item will <b>auto-extend</b> the existing node (no selection).<br>
         • Select one node to swap (hover handle = preview). Delete only if no parents above.<br>
         • Click an extension chip’s ✕ to remove that specific extension (refund point).
       </div>
-
-      <div class="section-title">Suggested next skills (high → low)</div>
-      <div id="suggestions" class="suggestions"></div>
 
       <div class="section-title">Filters</div>
       <div class="table-filter" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -145,36 +141,21 @@ function seedTable(){
 }
 
 /* ---------- Engine (sparse leaf-space) ---------- */
-const gap = k => k<=1?0:(1<<(k-2));         // spacing between children at tier k based on leaf-space
-const spanSize = t => 1<<(t-1);             // how many leaves a node at tier t covers
+const gap = k => k<=1?0:(1<<(k-2));         // child spacing at tier k in leaf-space
+const spanSize = t => 1<<(t-1);             // leaves covered by a tier-t node
 
 const Engine=(()=>{
   const parentCount=(s,id)=>Object.values(s.nodes).filter(n=>n.children.length===2 && n.children.includes(id)).length;
 
-  // leaf-space left index
   function leftLeafIndex(s,id){
     const n=s.nodes[id]; if(!n) return null;
     if(n.tier===1) return s.order[1].indexOf(id);
-    // min of children’s left indices
     const a=leftLeafIndex(s,n.children[0]); const b=leftLeafIndex(s,n.children[1]);
     if(a==null||b==null) return null;
     return Math.min(a,b);
   }
 
-  // map: tier -> { leftIndex -> [nodeIds] }
-  function leftIndexMap(s,tier){
-    const m=new Map();
-    for(const id of s.order[tier]){
-      const li=leftLeafIndex(s,id);
-      if(li==null) continue;
-      if(!m.has(li)) m.set(li,[]);
-      m.get(li).push(id);
-    }
-    return m;
-  }
-
   function duplicatePairExists(s,k,liL,liR){
-    const below=s.order[k-1];
     for(const pid of s.order[k]){
       const p=s.nodes[pid]; if(!p||p.children.length!==2) continue;
       const l=leftLeafIndex(s,p.children[0]); const r=leftLeafIndex(s,p.children[1]);
@@ -193,16 +174,19 @@ const Engine=(()=>{
       const l=leftLeafIndex(s,p.children[0]), r=leftLeafIndex(s,p.children[1]);
       if(l==null||r==null) return false;
       const lo=Math.min(l,r), hi=Math.max(l,r);
-      if(hi-lo!==childSpan) return false;     // spacing must match exact span
-      if(lo<prevRight) return false;          // non-overlapping, ordered
-      prevRight=hi+0;                         // allow touching endpoints
+      if(hi-lo!==childSpan) return false;
+      if(lo<prevRight) return false;
+      prevRight=hi;
     }
     return true;
   }
 
-  // Color uniqueness per tier (except via extension)
   function colorTakenOnTier(s,tier,color){
     return s.order[tier].some(id=>s.nodes[id].color===color);
+  }
+  function nodeByTierColor(s,tier,color){
+    const id=s.order[tier].find(id=>s.nodes[id].color===color);
+    return id? s.nodes[id] : null;
   }
 
   function addT1(state,itemId,insertAfterId){
@@ -232,9 +216,11 @@ const Engine=(()=>{
     const lower=A.tier, k=lower+1;
     if(it.tier!==k) return {ok:false,reason:`Pick a tier ${k} item`};
 
-    // color uniqueness per tier (no second node of same color; must extend)
-    if(colorTakenOnTier(state,k,it.color))
-      return {ok:false,reason:"Color already used on this tier — use Extend"};
+    // if color already used on this tier -> treat as natural extend
+    if(colorTakenOnTier(state,k,it.color)){
+      const target=nodeByTierColor(state,k,it.color);
+      return extendNode(state,target.id,itemId);
+    }
 
     // leaf-space spacing
     const liA=leftLeafIndex(state,A.id), liB=leftLeafIndex(state,B.id);
@@ -284,7 +270,7 @@ const Engine=(()=>{
     next.nodes[nodeId].stack.push(it.id);
     next.table[it.id]={...it,used:true};
     next.points++;
-    return {ok:true,state:next,msg:"Extended"};
+    return {ok:true,state:next,msg:`Extended ${n.name}`};
   }
 
   function removeExtension(state,nodeId,itemId){
@@ -299,7 +285,6 @@ const Engine=(()=>{
   }
 
   function removeNode(state,nodeId){
-    // must have no parents above
     const hasParent = Object.values(state.nodes).some(n=>n.children.length===2 && n.children.includes(nodeId));
     if(hasParent) return {ok:false,reason:"Remove parents first"};
     const n=state.nodes[nodeId]; if(!n) return {ok:false,reason:"Unknown node"};
@@ -317,23 +302,42 @@ const Engine=(()=>{
     const arr=lane.slice(); const [m]=arr.splice(from,1); arr.splice(to,0,m);
     const next=copy(state); next.order[tier]=arr;
     if(!tierValidByLeafGrid(next,tier) || (tier+1<=TIER_MAX && !tierValidByLeafGrid(next,tier+1)))
-      return {ok:false,reason:"Swap would cross"};
+      return {ok:false,reason:"Swap would cross / violate spans"};
     return {ok:true,state:next,msg:"Moved"};
   }
 
-  // For suggestions / pair chips: compute leaf-space windows
   function candidatePairsForTier(s,k){
     const lower=k-1, span=spanSize(lower);
-    const map=leftIndexMap(s,lower);
+    // Use leaf-space: parents must span exactly 'span' leaves.
     const pairs=[];
-    for(const [li, listL] of map.entries()){
-      const listR = map.get(li+span) || [];
-      for(const L of listL) for(const R of listR) pairs.push([L,R,li,li+span]);
+    const idsLower = s.order[lower];
+    // map leaf index for each child (left index)
+    const leftIndex = id => leftLeafIndex(s,id);
+    for (let aIdx=0; aIdx<idsLower.length; aIdx++){
+      const A = idsLower[aIdx];
+      const liA = leftIndex(A);
+      if (liA==null) continue;
+      // need partner whose left index is liA+span
+      for (let bIdx=0; bIdx<idsLower.length; bIdx++){
+        if (aIdx===bIdx) continue;
+        const B = idsLower[bIdx];
+        const liB = leftIndex(B);
+        if (liB==null) continue;
+        const lo=Math.min(liA,liB), hi=Math.max(liA,liB);
+        if (hi-lo===span) pairs.push([A,B]);
+      }
     }
-    return pairs;
+    // unique pairs by (lo,hi)
+    const seen=new Set(), out=[];
+    const pos = new Map(idsLower.map((id,i)=>[id,i]));
+    for(const [A,B] of pairs){
+      const lo=Math.min(pos.get(A),pos.get(B)), hi=Math.max(pos.get(A),pos.get(B));
+      const key=lo+"_"+hi; if(seen.has(key)) continue; seen.add(key); out.push([A,B]);
+    }
+    return out;
   }
 
-  return { addT1, addParent, extendNode, removeExtension, removeNode, moveNode, leftLeafIndex, candidatePairsForTier };
+  return { addT1, addParent, extendNode, removeExtension, removeNode, moveNode, candidatePairsForTier };
 })();
 
 /* ---------- App state ---------- */
@@ -409,10 +413,12 @@ function renderSwapHandles(){
   const t=n.tier; const lane=document.querySelector(`.lane[data-tier="${t}"]`);
   const arr=STATE.order[t]; const pos=arr.indexOf(id);
   const nodes=Array.from(lane.querySelectorAll('.node'));
+  let any=false;
   nodes.forEach((nodeEl,i)=>{
     if(i===pos) return;
     const r=Engine.moveNode(STATE,t,pos,i);
     if(!r.ok) return;
+    any=true;
     const handle=el('div',{class:'swap-handle',title:'Swap'});
     handle.addEventListener('mouseenter',()=>{
       const prev=STATE.order[t].slice(); const [m]=prev.splice(pos,1); prev.splice(i,0,m);
@@ -426,6 +432,7 @@ function renderSwapHandles(){
     });
     nodeEl.append(handle);
   });
+  if(!any) setStatus("No valid moves for this node under current spans.", true);
 }
 
 /* ---------- Edges ---------- */
@@ -434,7 +441,7 @@ function renderEdges(){
   const rect=tiersEl.getBoundingClientRect();
   const width=Math.max(tiersEl.scrollWidth,rect.width), height=Math.max(tiersEl.scrollHeight,rect.height);
   svg.setAttribute('width',width); svg.setAttribute('height',height);
-  svg.innerHTML=''; // clear thoroughly
+  svg.innerHTML='';
   const centers=new Map();
   for(const id of Object.keys(STATE.nodes)){
     const nodeEl=document.querySelector(`.node[data-id="${id}"]`); if(!nodeEl) continue;
@@ -455,7 +462,7 @@ function renderEdges(){
   }
 }
 
-/* ---------- Lists, filters, suggestions ---------- */
+/* ---------- Lists, filters, suggestions-in-addable ---------- */
 function updateFilters(){
   const tierSel=$('#tierFilter'), colorSel=$('#colorFilter');
   const prevT=tierSel.value; tierSel.innerHTML=''; tierSel.append(el('option',{value:'any'},'Any'));
@@ -488,12 +495,32 @@ function rowUsed(item){ const row=rowBase(item); row.classList.add('locked'); ro
 
 function listPairsForItem(item){
   const k=item.tier, pairs=Engine.candidatePairsForTier(STATE,k);
-  return pairs.map(([L,R,liA,liB])=>[L,R]); // children IDs only
+  return pairs.map(([L,R])=>[L,R]);
+}
+
+function onAutoExtend(item){
+  // find existing node on this tier with same color and extend
+  const targetId = STATE.order[item.tier].find(id=>STATE.nodes[id].color===item.color);
+  if(!targetId){ setStatus("No target to extend on this tier.", true); return; }
+  pushUndo();
+  const res = Engine.extendNode(STATE, targetId, item.id);
+  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
 }
 
 function rowParents(item,selectedPair){
   const row=rowBase(item);
   const pairsDiv=el('div',{class:'pairs'}); row.append(pairsDiv);
+
+  // NATURAL EXTEND: if color already used on this tier, show a direct Extend button and stop.
+  const existingId = STATE.order[item.tier].find(id=>STATE.nodes[id].color===item.color);
+  if (existingId){
+    const tgt = STATE.nodes[existingId];
+    row.querySelector('.table-head').append(
+      el('button',{class:'pill ok',onclick:()=>onAutoExtend(item)},`Extend ${tgt.name}`)
+    );
+    row.append(el('div',{class:'reason'},'Color already exists on this tier — using Extend.'));
+    return row;
+  }
 
   // quick button for exactly selected pair
   if(selectedPair){
@@ -504,12 +531,6 @@ function rowParents(item,selectedPair){
         el('button',{class:`pill ${test.ok?'ok':''}`,disabled:!test.ok,onclick:()=>onAddParent(A.id,B.id,item.id)},'Add with selected pair')
       );
     }
-  }
-
-  // If same color already taken on this tier, short-circuit to locked
-  if(STATE.order[item.tier].some(id=>STATE.nodes[id].color===item.color)){
-    row._meta={allReason:"Color already used on this tier — use Extend"};
-    return row;
   }
 
   const pairs=listPairsForItem(item);
@@ -547,70 +568,97 @@ function renderLists(){
   const sel=[...selected]; const hasTwo=sel.length===2; const selTier=hasTwo ? STATE.nodes[sel[0]].tier : null;
   const selItems=hasTwo ? items.filter(it=>it.tier===selTier+1) : []; const otherItems=hasTwo ? items.filter(it=>it.tier!==selTier+1) : items;
 
-  const group=(label,arr)=>{
+  const group=(label,arr,targetList=addable)=>{
     if(!arr.length) return;
-    addable.append(el('div',{class:'hint'},label));
+    targetList.append(el('div',{class:'hint'},label));
     for(const item of arr){
       if(item.used){ used.append(rowUsed(item)); continue; }
-      if(item.tier===1){ addable.append(rowLeaf(item)); continue; }
+      if(item.tier===1){ targetList.append(rowLeaf(item)); continue; }
       const row=rowParents(item, hasTwo? {a:sel[0],b:sel[1]} : null);
       const meta=row._meta;
       if(meta && meta.allReason) locked.append(rowLocked(item,meta.allReason));
-      else addable.append(row);
+      else targetList.append(row);
     }
   };
 
   if(hasTwo){ group("For selected pair",selItems); group("Other addable now",otherItems); }
   else group("Addable now",otherItems);
 
+  // --- Suggestions GO HERE (inside Addable) ---
+  const sugg = buildSuggestions();
+  if (sugg.length){
+    addable.append(el('div',{class:'hint'},'Suggestions (highest tiers first)'));
+    const wrap = el('div',{class:'pairs'});
+    sugg.slice(0,12).forEach(s=>{
+      wrap.append(el('button',{
+        class:'sugg-chip',
+        title:`Add ${s.item.name} over ${s.A.name} · ${s.B.name}`,
+        onclick:()=>onAddParent(s.A.id,s.B.id,s.item.id)
+      }, `T${s.item.tier} ${s.item.name} → ${s.A.name} · ${s.B.name}`));
+    });
+    addable.append(wrap);
+  }
+  // --------------------------------------------
+
   if(!locked.children.length) locked.append(el('div',{class:'hint'},"Nothing locked here."));
   if(!used.children.length) used.append(el('div',{class:'hint'},"No items consumed yet."));
-
-  renderSuggestions();
 }
 
-function renderSuggestions(){
-  const box=$('#suggestions'); box.innerHTML='';
-  // compute all addable parents, sort by tier desc
-  const sugg=[];
+function buildSuggestions(){
+  const out=[];
   for(let t=TIER_MAX;t>=2;t--){
     const items=Object.values(STATE.table).filter(it=>!it.used && it.tier===t);
     for(const it of items){
-      if(STATE.order[t].some(id=>STATE.nodes[id].color===it.color)) continue; // color already used this tier
+      // if color is already present on this tier, suggestion is an extend (skip here; row handles auto-extend)
+      const exists = STATE.order[it.tier].some(id=>STATE.nodes[id].color===it.color);
+      if (exists) continue;
       const pairs=Engine.candidatePairsForTier(STATE,t);
       for(const [L,R] of pairs){
         const probe=Engine.addParent(STATE,L,R,it.id);
-        if(probe.ok){ const A=STATE.nodes[L], B=STATE.nodes[R]; sugg.push({tier:t, text:`T${t} ${it.name} over ${A.name} · ${B.name}`}); if(sugg.length>16) break; }
+        if(probe.ok){
+          out.push({item:it, A:STATE.nodes[L], B:STATE.nodes[R]});
+          if(out.length>20) return out;
+        }
       }
-      if(sugg.length>16) break;
     }
-    if(sugg.length>16) break;
   }
-  if(sugg.length===0){ box.append(el('span',{class:'small'},"No higher-tier additions available.")); return; }
-  sugg.slice(0,12).forEach(s=> box.append(el('span',{class:'sugg'}, s.text)));
+  return out;
 }
 
 /* ---------- Preview ---------- */
 function previewAdd(a,b,item){
   clearPreview();
   const A=STATE.nodes[a], B=STATE.nodes[b]; const k=A.tier+1;
-  // Build a temporary ghost order for drawing only
-  const lo=Math.min(Engine.leftLeafIndex(STATE,A.id), Engine.leftLeafIndex(STATE,B.id));
+  // temp ghost for edges preview
+  const saved = STATE.order[k]? STATE.order[k].slice() : [];
+  if(!STATE.order[k]) STATE.order[k]=[];
+  const ghost="__PREVIEW__";
+  STATE.nodes[ghost]={id:ghost,name:'preview',desc:'',color:item.color,tier:k,children:[A.id,B.id],stack:[]};
+  // place by leftLeafIndex order
+  const lo = (()=>{ // compute left index of min child
+    const leftIdx = id => {
+      const n=STATE.nodes[id];
+      if(n.tier===1) return STATE.order[1].indexOf(id);
+      const l=STATE.nodes[n.children[0]], r=STATE.nodes[n.children[1]];
+      return Math.min(arguments.callee(l.id), arguments.callee(r.id));
+    };
+    return Math.min(leftIdx(A.id), leftIdx(B.id));
+  })();
   let pos=0;
   for(const pid of STATE.order[k]){
-    const p=STATE.nodes[pid];
-    const l=Engine.leftLeafIndex(STATE,p.children[0]);
-    const r=Engine.leftLeafIndex(STATE,p.children[1]);
-    if(Math.min(l,r) >= lo) break;
+    const p=STATE.nodes[pid]; if(!p||p.children.length!==2) continue;
+    const leftIdx = id => {
+      const n=STATE.nodes[id];
+      if(n.tier===1) return STATE.order[1].indexOf(id);
+      const l=STATE.nodes[n.children[0]], r=STATE.nodes[n.children[1]];
+      return Math.min(arguments.callee(l.id), arguments.callee(r.id));
+    };
+    const pl = Math.min(leftIdx(p.children[0]), leftIdx(p.children[1]));
+    if(pl >= lo) break;
     pos++;
   }
-  const ghost="__PREVIEW__";
-  const saved=STATE.order[k]? STATE.order[k].slice():[];
-  if(!STATE.order[k]) STATE.order[k]=[];
-  STATE.nodes[ghost]={id:ghost,name:'preview',desc:'',color:item.color,tier:k,children:[A.id,B.id],stack:[]};
   STATE.order[k].splice(pos,0,ghost);
   renderEdges();
-  // restore
   STATE.order[k]=saved; delete STATE.nodes[ghost];
 }
 function clearPreview(){ renderEdges(); }
@@ -627,12 +675,6 @@ function onAddParent(a,b,itemId){
   const res=Engine.addParent(STATE,a,b,itemId);
   if(res.ok){ STATE=res.state; updatePoints(); selected.clear(); renderAll(res.msg); } else setStatus(res.reason,true);
 }
-function onExtend(item){
-  if(!EXTEND_FOR){ setStatus("Select a node and click Extend.",true); return; }
-  pushUndo();
-  const res=Engine.extendNode(STATE,EXTEND_FOR,item.id);
-  if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
-}
 function onRemoveExtension(nodeId,itemId){
   pushUndo();
   const res=Engine.removeExtension(STATE,nodeId,itemId);
@@ -644,7 +686,7 @@ function onRemoveNode(id){
   if(res.ok){ STATE=res.state; updatePoints(); renderAll(res.msg); } else setStatus(res.reason,true);
 }
 
-/* ---------- Lists & filters ---------- */
+/* ---------- Filters ---------- */
 function updateFiltersUI(){
   const tierSel=$('#tierFilter'), colorSel=$('#colorFilter');
   const prevT=tierSel.value; tierSel.innerHTML=''; tierSel.append(el('option',{value:'any'},'Any'));
@@ -660,12 +702,12 @@ function renderListsAndFilters(){ renderLists(); updateFiltersUI(); }
 /* ---------- Render all ---------- */
 function renderAll(msg,isErr=false){
   renderTiers();
-  renderEdges(); // re-draw edges after any change to avoid stale lines
+  renderEdges();
   renderListsAndFilters();
   setStatus(msg||'Ready.',isErr);
 }
 
-/* ---------- Share/undo/redo/reset ---------- */
+/* ---------- Share / undo / redo / reset ---------- */
 function encodeState(){ return b64u(JSON.stringify(STATE)); }
 function tryLoadFromHash(){
   if(location.hash.startsWith("#S=")){
